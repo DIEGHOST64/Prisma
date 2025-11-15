@@ -1,0 +1,353 @@
+"""
+Controlador de documentos
+"""
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials
+from typing import List, Optional
+from ..models.document_models import DocumentResponse, DocumentUrlResponse, ErrorResponse
+from ..middlewares.auth_middleware import require_auth, require_roles, security
+from ...application.usecases import (
+    UploadDocumentUseCase,
+    GetDocumentUrlUseCase,
+    GetDocumentsByApplicationUseCase,
+    GetDocumentsByUserUseCase,
+    DeleteDocumentUseCase
+)
+
+
+class DocumentController:
+    """Controlador para manejo de documentos"""
+
+    def __init__(
+        self,
+        upload_document_usecase: UploadDocumentUseCase,
+        get_document_url_usecase: GetDocumentUrlUseCase,
+        get_documents_by_application_usecase: GetDocumentsByApplicationUseCase,
+        get_documents_by_user_usecase: GetDocumentsByUserUseCase,
+        delete_document_usecase: DeleteDocumentUseCase
+    ):
+        self.upload_document_usecase = upload_document_usecase
+        self.get_document_url_usecase = get_document_url_usecase
+        self.get_documents_by_application_usecase = get_documents_by_application_usecase
+        self.get_documents_by_user_usecase = get_documents_by_user_usecase
+        self.delete_document_usecase = delete_document_usecase
+
+        self.router = APIRouter()
+        self._register_routes()
+
+    def _register_routes(self):
+        """Registrar rutas del controlador"""
+
+        @self.router.post(
+            "/upload/public",
+            response_model=DocumentResponse,
+            status_code=status.HTTP_201_CREATED,
+            responses={
+                400: {"model": ErrorResponse},
+                413: {"model": ErrorResponse}
+            }
+        )
+        async def upload_document_public(
+            request: Request,
+            file: UploadFile = File(...),
+            user_document: str = Form(...),
+            application_id: str = Form(...),
+            document_type: str = Form(...)
+        ):
+            """
+            Subir un documento (público - para postulaciones)
+
+            - **file**: Archivo a subir (PDF, DOC, DOCX, JPG, PNG - máx 10MB)
+            - **user_document**: Número de documento del usuario
+            - **application_id**: ID de la postulación
+            - **document_type**: Tipo de documento (cv, carta_presentacion, certificado, etc)
+            """
+            # Leer archivo
+            file_content = await file.read()
+            file_size = len(file_content)
+
+            # Validar tamaño
+            if file_size > 10 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="El archivo no puede superar los 10 MB"
+                )
+
+            try:
+                document = await self.upload_document_usecase.execute(
+                    file_content=file_content,
+                    filename=file.filename,
+                    file_size=file_size,
+                    mime_type=file.content_type,
+                    user_document=user_document,
+                    application_id=application_id,
+                    document_type=document_type,
+                    uploaded_by=None  # Usuario público
+                )
+
+                return DocumentResponse.model_validate(document)
+
+            except ValueError as e:
+                import logging
+                logging.error(f"ValueError en upload_document_public: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e)
+                )
+            except Exception as e:
+                import logging
+                import traceback
+                logging.error(f"Exception en upload_document_public: {str(e)}")
+                logging.error(f"Traceback: {traceback.format_exc()}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Error al subir documento: {str(e)}"
+                )
+
+        @self.router.post(
+            "/upload",
+            response_model=DocumentResponse,
+            status_code=status.HTTP_201_CREATED,
+            responses={
+                400: {"model": ErrorResponse},
+                401: {"model": ErrorResponse},
+                413: {"model": ErrorResponse}
+            }
+        )
+        async def upload_document(
+            request: Request,
+            file: UploadFile = File(...),
+            user_document: str = Form(...),
+            application_id: str = Form(...),
+            document_type: str = Form(...),
+            credentials: HTTPAuthorizationCredentials = Depends(security)
+        ):
+            """
+            Subir un documento (requiere autenticación)
+
+            - **file**: Archivo a subir (PDF, DOC, DOCX, JPG, PNG - máx 10MB)
+            - **user_document**: Número de documento del usuario
+            - **application_id**: ID de la postulación
+            - **document_type**: Tipo de documento (cv, carta_presentacion, certificado, etc)
+            """
+            # Verificar autenticación manualmente
+            from ...infrastructure.auth.jwt_service import JWTService
+            from ...config.config import get_settings
+
+            settings = get_settings()
+            jwt_service = JWTService(settings.jwt_secret)
+
+            token = credentials.credentials
+            payload = jwt_service.verify_token(token)
+
+            if payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido o expirado"
+                )
+
+            user_id = payload.get('sub')
+
+            # Leer archivo
+            file_content = await file.read()
+            file_size = len(file_content)
+
+            # Validar tamaño
+            if file_size > 10 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="El archivo no puede superar los 10 MB"
+                )
+
+            # Crear file-like object para el use case
+            from io import BytesIO
+            file_obj = BytesIO(file_content)
+
+            try:
+                document = await self.upload_document_usecase.execute(
+                    file=file_obj,
+                    filename=file.filename,
+                    file_size=file_size,
+                    mime_type=file.content_type,
+                    user_document=user_document,
+                    application_id=application_id,
+                    document_type=document_type,
+                    uploaded_by=user_id
+                )
+
+                return DocumentResponse.model_validate(document)
+
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(e)
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Error al subir documento: {str(e)}"
+                )
+
+        @self.router.get(
+            "/{document_id}/url",
+            response_model=DocumentUrlResponse,
+            responses={
+                404: {"model": ErrorResponse},
+                401: {"model": ErrorResponse}
+            }
+        )
+        async def get_document_url(
+            document_id: str,
+            credentials: HTTPAuthorizationCredentials = Depends(security)
+        ):
+            """
+            Obtener URL de acceso a un documento
+
+            - **document_id**: ID del documento
+            """
+            # Verificar autenticación
+            from ...infrastructure.auth.jwt_service import JWTService
+            from ...config.config import get_settings
+
+            settings = get_settings()
+            jwt_service = JWTService(settings.jwt_secret)
+
+            token = credentials.credentials
+            payload = jwt_service.verify_token(token)
+
+            if payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido o expirado"
+                )
+
+            url = await self.get_document_url_usecase.execute(document_id)
+
+            if url is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Documento no encontrado"
+                )
+
+            return DocumentUrlResponse(document_id=document_id, url=url)
+
+        @self.router.get(
+            "/application/{application_id}",
+            response_model=List[DocumentResponse],
+            responses={401: {"model": ErrorResponse}}
+        )
+        async def get_documents_by_application(
+            application_id: str,
+            credentials: HTTPAuthorizationCredentials = Depends(security)
+        ):
+            """
+            Obtener todos los documentos de una postulación
+
+            - **application_id**: ID de la postulación
+            """
+            # Verificar autenticación
+            from ...infrastructure.auth.jwt_service import JWTService
+            from ...config.config import get_settings
+
+            settings = get_settings()
+            jwt_service = JWTService(settings.jwt_secret)
+
+            token = credentials.credentials
+            payload = jwt_service.verify_token(token)
+
+            if payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido o expirado"
+                )
+
+            documents = await self.get_documents_by_application_usecase.execute(application_id)
+
+            return [DocumentResponse.model_validate(doc) for doc in documents]
+
+        @self.router.get(
+            "/user/{user_document}",
+            response_model=List[DocumentResponse],
+            responses={401: {"model": ErrorResponse}}
+        )
+        async def get_documents_by_user(
+            user_document: str,
+            credentials: HTTPAuthorizationCredentials = Depends(security)
+        ):
+            """
+            Obtener todos los documentos de un usuario
+
+            - **user_document**: Número de documento del usuario
+            """
+            # Verificar autenticación
+            from ...infrastructure.auth.jwt_service import JWTService
+            from ...config.config import get_settings
+
+            settings = get_settings()
+            jwt_service = JWTService(settings.jwt_secret)
+
+            token = credentials.credentials
+            payload = jwt_service.verify_token(token)
+
+            if payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido o expirado"
+                )
+
+            documents = await self.get_documents_by_user_usecase.execute(user_document)
+
+            return [DocumentResponse.model_validate(doc) for doc in documents]
+
+        @self.router.delete(
+            "/{document_id}",
+            status_code=status.HTTP_204_NO_CONTENT,
+            responses={
+                404: {"model": ErrorResponse},
+                401: {"model": ErrorResponse},
+                403: {"model": ErrorResponse}
+            }
+        )
+        async def delete_document(
+            document_id: str,
+            credentials: HTTPAuthorizationCredentials = Depends(security)
+        ):
+            """
+            Eliminar un documento (solo admin y recruiter)
+
+            - **document_id**: ID del documento
+            """
+            # Verificar autenticación y rol
+            from ...infrastructure.auth.jwt_service import JWTService
+            from ...config.config import get_settings
+
+            settings = get_settings()
+            jwt_service = JWTService(settings.jwt_secret)
+
+            token = credentials.credentials
+            payload = jwt_service.verify_token(token)
+
+            if payload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token inválido o expirado"
+                )
+
+            # Verificar rol
+            user_role = payload.get('role')
+            if user_role not in ['admin', 'recruiter']:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="No tienes permisos para eliminar documentos"
+                )
+
+            deleted = await self.delete_document_usecase.execute(document_id)
+
+            if not deleted:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Documento no encontrado"
+                )
+
+            return None
+
