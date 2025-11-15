@@ -1,0 +1,245 @@
+version: '3.8'
+
+services:
+  # ========================
+  # BASES DE DATOS
+  # ========================
+  
+  recruitment-postgres:
+    image: postgres:16-alpine
+    container_name: recruitment-postgres
+    environment:
+      POSTGRES_DB: recruitment_db
+      POSTGRES_USER: ${RECRUITMENT_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${RECRUITMENT_DB_PASSWORD:-postgres123}
+    ports:
+      - "5433:5432"
+    volumes:
+      - recruitment_postgres_data:/var/lib/postgresql/data
+      - ./recruitment-service/database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  auth-postgres:
+    image: postgres:16-alpine
+    container_name: auth-postgres
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: ${AUTH_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-postgres123}
+    ports:
+      - "5434:5432"
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  document-postgres:
+    image: postgres:16-alpine
+    container_name: document-postgres
+    environment:
+      POSTGRES_DB: document_db
+      POSTGRES_USER: ${DOCUMENT_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DOCUMENT_DB_PASSWORD:-postgres123}
+    ports:
+      - "5435:5432"
+    volumes:
+      - document_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  # ========================
+  # SERVICIOS BACKEND
+  # ========================
+
+  recruitment-service:
+    build:
+      context: ./recruitment-service
+      dockerfile: Dockerfile
+    container_name: recruitment-service
+    ports:
+      - "3002:3002"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      DB_HOST: recruitment-postgres
+      DB_PORT: 5432
+      DB_NAME: recruitment_db
+      DB_USER: ${RECRUITMENT_DB_USER:-postgres}
+      DB_PASSWORD: ${RECRUITMENT_DB_PASSWORD:-postgres123}
+      AUTH_SERVICE_URL: http://auth-service:3001
+      JWT_SECRET: ${JWT_SECRET}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+    depends_on:
+      recruitment-postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    volumes:
+      - ./recruitment-service/src:/var/www/html/src
+      - ./recruitment-service/public:/var/www/html/public
+      - recruitment_uploads:/var/www/html/uploads
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3001
+      DB_HOST: auth-postgres
+      DB_PORT: 5432
+      DB_NAME: auth_db
+      DB_USER: ${AUTH_DB_USER:-postgres}
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:-postgres123}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  document-service:
+    build:
+      context: ./document-service
+      dockerfile: Dockerfile
+    container_name: document-service
+    ports:
+      - "3003:3003"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DB_HOST: document-postgres
+      DB_PORT: 5432
+      DB_NAME: document_db
+      DB_USER: ${DOCUMENT_DB_USER:-postgres}
+      DB_PASSWORD: ${DOCUMENT_DB_PASSWORD:-postgres123}
+      JWT_SECRET: ${JWT_SECRET}
+      UPLOAD_DIR: /app/uploads
+      MAX_FILE_SIZE: ${MAX_FILE_SIZE:-10485760}
+    depends_on:
+      document-postgres:
+        condition: service_healthy
+    volumes:
+      - document_uploads:/app/uploads
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  # ========================
+  # WORKER DE COLA
+  # ========================
+
+  queue-worker:
+    build:
+      context: ./recruitment-service
+      dockerfile: Dockerfile
+    container_name: queue-worker
+    command: php /var/www/html/queue-worker.php
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      DB_HOST: recruitment-postgres
+      DB_PORT: 5432
+      DB_NAME: recruitment_db
+      DB_USER: ${RECRUITMENT_DB_USER:-postgres}
+      DB_PASSWORD: ${RECRUITMENT_DB_PASSWORD:-postgres123}
+    depends_on:
+      recruitment-postgres:
+        condition: service_healthy
+      recruitment-service:
+        condition: service_started
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  # ========================
+  # FRONTEND
+  # ========================
+
+  frontend:
+    build:
+      context: ./frontend-prisma
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost}
+        VITE_RECRUITMENT_API: ${VITE_RECRUITMENT_API:-http://localhost:3002}
+        VITE_AUTH_API: ${VITE_AUTH_API:-http://localhost:3001}
+        VITE_DOCUMENT_API: ${VITE_DOCUMENT_API:-http://localhost:3003}
+    container_name: frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - recruitment-service
+      - auth-service
+      - document-service
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+  # ========================
+  # REVERSE PROXY (OPCIONAL)
+  # ========================
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - recruitment-service
+      - auth-service
+      - document-service
+    networks:
+      - prisma-network
+    restart: unless-stopped
+
+networks:
+  prisma-network:
+    driver: bridge
+
+volumes:
+  recruitment_postgres_data:
+  auth_postgres_data:
+  document_postgres_data:
+  recruitment_uploads:
+  document_uploads:
