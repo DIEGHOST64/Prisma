@@ -1,7 +1,7 @@
 // User & Auth Types
 export interface User {
   id: string;
-  email: string;
+  applicant_email: string;
   firstName: string;
   lastName: string;
   document: string;
@@ -18,7 +18,7 @@ export interface AuthResponse {
 }
 
 export interface LoginCredentials {
-  email: string;
+  applicant_email: string;
   password: string;
 }
 
@@ -56,10 +56,10 @@ export interface Application {
   uuid: string;
   vacancyId: string;
   applicantName: string;
-  applicantEmail: string;
-  applicantPhone: string;
+  applicant_email: string;
+  applicant_phone: string;
   applicantDocument: string;
-  coverLetter?: string;
+  cover_letter?: string;
   status: 'pending' | 'reviewing' | 'interviewed' | 'accepted' | 'rejected';
   notes?: string;
   createdAt: string;
@@ -101,3 +101,6 @@ export interface UploadDocumentData {
   application_id: string;
   document_type: 'cv' | 'carta_presentacion' | 'certificado' | 'diploma' | 'referencia' | 'otro';
 }
+
+
+

@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Configuración de axios para Auth Service
 export const authAPI = axios.create({
-  baseURL: 'http://localhost:3001/api/v1',
+  baseURL: 'http://52.0.197.30:3001/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -10,7 +10,7 @@ export const authAPI = axios.create({
 
 // Configuración de axios para Recruitment Service
 export const recruitmentAPI = axios.create({
-  baseURL: 'http://localhost:3002/api/v1',
+  baseURL: 'http://52.0.197.30:3002/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,7 +18,7 @@ export const recruitmentAPI = axios.create({
 
 // Configuración de axios para Document Service
 export const documentAPI = axios.create({
-  baseURL: 'http://localhost:3003/api/v1',
+  baseURL: 'http://52.0.197.30:3003/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -95,3 +95,4 @@ documentAPI.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+

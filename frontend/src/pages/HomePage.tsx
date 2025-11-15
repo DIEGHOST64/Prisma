@@ -339,10 +339,6 @@ export default function HomePage() {
                             }
                           }
                           
-                          if (vacancy.salaryRange?.min && vacancy.salaryRange?.max) {
-                            return `$${vacancy.salaryRange.min.toLocaleString('es-CO')} - $${vacancy.salaryRange.max.toLocaleString('es-CO')}`;
-                          }
-                          
                           return 'A convenir';
                         })()}
                       </span>

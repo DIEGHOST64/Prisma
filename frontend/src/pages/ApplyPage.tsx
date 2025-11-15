@@ -97,12 +97,12 @@ export default function ApplyPage() {
     try {
       // 1. Crear la aplicación primero
       const applicationData: CreateApplicationData = {
-        vacancyId: vacancyId!,
-        applicantName: formData.applicantName,
-        applicantEmail: formData.applicantEmail,
-        applicantPhone: formData.applicantPhone,
-        applicantDocument: formData.applicantDocument,
-        coverLetter: formData.coverLetter,
+        vacancy_id: vacancyId!,
+        applicant_name: formData.applicantName,
+        applicant_email: formData.applicantEmail,
+        applicant_phone: formData.applicantPhone,
+        applicant_document: formData.applicantDocument,
+        cover_letter: formData.coverLetter,
       };
       
       console.log('Enviando aplicación...', applicationData);
@@ -497,3 +497,5 @@ export default function ApplyPage() {
     </div>
   );
 }
+
+

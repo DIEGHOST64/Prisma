@@ -1,7 +1,7 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 import type { AuthResponse, LoginCredentials, User } from '../types';
 
-const API_URL = 'http://localhost:3001/api/v1';
+const API_URL = 'http://52.0.197.30:3001/api/v1';
 
 const authAPI = axios.create({
   baseURL: API_URL,
@@ -19,16 +19,16 @@ authAPI.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticaci�n
 authAPI.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Sesión expirada o token inválido
+      // Sesi�n expirada o token inv�lido
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       
-      // Redirigir al login con parámetro de sesión expirada
+      // Redirigir al login con par�metro de sesi�n expirada
       if (window.location.pathname !== '/login') {
         window.location.href = '/login?session=expired';
       }

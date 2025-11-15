@@ -1,8 +1,8 @@
 import axios from 'axios';
 import { recruitmentAPI } from './api';
-import type { Vacancy, CreateVacancyData } from '../types';
+import type { Vacancy } from '../types';
 
-const API_URL = 'http://localhost:3002/api/v1';
+const API_URL = 'http://52.0.197.30:3002/api';
 
 export interface VacancyFull {
   uuid?: string;

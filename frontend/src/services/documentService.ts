@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Document, UploadDocumentData } from '../types';
 
-const API_URL = 'http://localhost:3003/api/v1';
+const API_URL = 'http://52.0.197.30:3003/api/v1';
 
 const documentAPI = axios.create({
   baseURL: API_URL,

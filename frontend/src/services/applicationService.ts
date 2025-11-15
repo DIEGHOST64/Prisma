@@ -1,7 +1,7 @@
-Ôªøimport axios from 'axios';
+import axios from 'axios';
 import type { Application, CreateApplicationData } from '../types';
 
-const API_URL = 'http://localhost:3002/api/v1';
+const API_URL = 'http://52.0.197.30:3002/api';
 
 const applicationAPI = axios.create({
   baseURL: API_URL,
@@ -18,7 +18,7 @@ applicationAPI.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor para manejar errores de autenticaci√≥n
+// Interceptor para manejar errores de autenticaciÛn
 applicationAPI.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -37,13 +37,13 @@ export const applicationService = {
   async createApplication(data: CreateApplicationData): Promise<Application> {
     // Transformar datos del frontend al formato que espera el backend
     const backendData = {
-      vacancyUuid: data.vacancyId,
-      fullName: data.applicantName,
-      email: data.applicantEmail,
-      phone: data.applicantPhone,
-      documentNumber: data.applicantDocument,
-      coverLetter: data.coverLetter || '',
-      cvPath: '' // Se actualizar√° despu√©s de subir el archivo
+      vacancyUuid: data.vacancy_id,
+        fullName: data.applicant_name,
+        email: data.applicant_email,
+        phone: data.applicant_phone,
+        documentNumber: data.applicant_document,
+        coverLetter: data.cover_letter || '',
+      cvPath: '' // Se actualizar· despuÈs de subir el archivo
     };
 
     const response = await applicationAPI.post<{ success: boolean; data: any }>('/applications', backendData);
@@ -54,8 +54,8 @@ export const applicationService = {
       uuid: backendApp.uuid,
       vacancyId: backendApp.vacancyUuid,
       applicantName: backendApp.fullName,
-      applicantEmail: backendApp.email,
-      applicantPhone: backendApp.phone,
+      applicant_email: backendApp.email,
+      applicant_phone: backendApp.phone,
       applicantDocument: backendApp.documentNumber,
       coverLetter: backendApp.coverLetter,
       status: backendApp.status,
@@ -134,3 +134,6 @@ export const applicationService = {
     return { deleted: response.data.deleted };
   },
 };
+
+
+

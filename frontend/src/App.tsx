@@ -12,7 +12,7 @@ import UserManagement from './pages/UserManagement';
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router basename="/Prisma">
         <Routes>
           <Route path='/' element={<HomePage />} />
           <Route path='/login' element={<LoginPage />} />
