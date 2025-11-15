@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.932.0",
+    "@aws-sdk/client-sqs": "^3.932.0",
+    "nodemailer": "^7.0.10"
+  }
+}

@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  recruitment-postgres:
+    image: postgres:16-alpine
+    container_name: recruitment-postgres
+    environment:
+      POSTGRES_DB: recruitment_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - recruitment-network
+
+  recruitment-service:
+    build: .
+    container_name: recruitment-service
+    ports:
+      - "3002:3002"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "true"
+      DB_HOST: recruitment-postgres
+      DB_PORT: 5432
+      DB_NAME: recruitment_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      AUTH_SERVICE_URL: http://auth-service:3001
+      JWT_SECRET: your_jwt_secret_change_in_production
+    depends_on:
+      recruitment-postgres:
+        condition: service_healthy
+    volumes:
+      - ./src:/var/www/html/src
+      - ./public:/var/www/html/public
+    networks:
+      - recruitment-network
+      - auth-service_default
+
+networks:
+  recruitment-network:
+    driver: bridge
+  auth-service_default:
+    external: true
+
+volumes:
+  postgres_data:
