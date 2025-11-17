@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// Configuración de axios para Auth Service
+// Configuración de axios para Auth Service (HTTPS seguro) - v2024
 export const authAPI = axios.create({
-  baseURL: 'http://52.0.197.30:3001/api/v1',
+  baseURL: 'https://prismacvesta.xyz/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -10,7 +10,7 @@ export const authAPI = axios.create({
 
 // Configuración de axios para Recruitment Service
 export const recruitmentAPI = axios.create({
-  baseURL: 'http://52.0.197.30:3002/api',
+  baseURL: 'https://prismacvesta.xyz/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,7 +18,7 @@ export const recruitmentAPI = axios.create({
 
 // Configuración de axios para Document Service
 export const documentAPI = axios.create({
-  baseURL: 'http://52.0.197.30:3003/api/v1',
+  baseURL: 'https://prismacvesta.xyz/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },

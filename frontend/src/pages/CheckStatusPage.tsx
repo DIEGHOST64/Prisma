@@ -297,11 +297,11 @@ export default function CheckStatusPage() {
                       <div className='space-y-2'>
                         <p className='text-gray-600 flex items-center gap-2'>
                           <FaEnvelope className='text-blue-500' />
-                          <span className='font-medium'>Email:</span> {app.applicantEmail}
+                          <span className='font-medium'>Email:</span> {app.applicant_email}
                         </p>
                         <p className='text-gray-600 flex items-center gap-2'>
                           <FaPhone className='text-blue-500' />
-                          <span className='font-medium'>Teléfono:</span> {app.applicantPhone}
+                          <span className='font-medium'>Teléfono:</span> {app.applicant_phone}
                         </p>
                       </div>
                     </div>

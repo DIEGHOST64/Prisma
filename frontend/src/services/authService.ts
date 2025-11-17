@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { AuthResponse, LoginCredentials, User } from '../types';
 
-const API_URL = 'http://52.0.197.30:3001/api/v1';
+const API_URL = 'https://prismacvesta.xyz/api/v1';
 
 const authAPI = axios.create({
   baseURL: API_URL,
@@ -19,16 +19,16 @@ authAPI.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticaciï¿½n
 authAPI.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Sesión expirada o token inválido
+      // Sesiï¿½n expirada o token invï¿½lido
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       
-      // Redirigir al login con parámetro de sesión expirada
+      // Redirigir al login con parï¿½metro de sesiï¿½n expirada
       if (window.location.pathname !== '/login') {
         window.location.href = '/login?session=expired';
       }
@@ -63,7 +63,7 @@ export const authService = {
         refreshToken: backendData.refreshToken,
         user: {
           id: backendData.user.uuid,
-          email: backendData.user.email,
+          applicant_email: backendData.user.email,
           firstName: backendData.user.name.split(' ')[0] || backendData.user.name,
           lastName: backendData.user.name.split(' ').slice(1).join(' ') || '',
           document: '',

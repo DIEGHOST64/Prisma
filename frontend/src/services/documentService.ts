@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Document, UploadDocumentData } from '../types';
 
-const API_URL = 'http://52.0.197.30:3003/api/v1';
+const API_URL = 'https://prismacvesta.xyz/api/v1';
 
 const documentAPI = axios.create({
   baseURL: API_URL,
@@ -56,7 +56,7 @@ export const documentService = {
       }
 
       // Construir la URL correcta del archivo (público, no requiere auth)
-      const fileUrl = `http://localhost:3003/storage/${cvDoc.file_path}`;
+      const fileUrl = `https://api.prismacvesta.xyz/api/v1/documents/storage/${cvDoc.file_path}`;
       
       // Descargar el archivo sin autenticación (los archivos en /storage son públicos)
       const fileResponse = await axios.get(fileUrl, {

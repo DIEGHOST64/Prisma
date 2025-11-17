@@ -242,7 +242,7 @@ export default function AdminDashboard() {
             <div className='flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-xl'>
               <FaUserTie className='text-slate-600' />
               <span className='text-sm font-medium text-gray-700'>
-                {user?.email}
+                {user?.applicant_email}
               </span>
             </div>
             <motion.button
@@ -553,8 +553,8 @@ export default function AdminDashboard() {
                       </div>
                     </td>
                     <td className='px-6 py-4'>
-                      <div className='text-sm text-gray-900'>{app.applicantEmail}</div>
-                      <div className='text-sm text-gray-500'>{app.applicantPhone}</div>
+                      <div className='text-sm text-gray-900'>{app.applicant_email}</div>
+                      <div className='text-sm text-gray-500'>{app.applicant_phone}</div>
                     </td>
                     <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900'>
                       {app.applicantDocument}
@@ -764,7 +764,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <p className='text-xs text-gray-500 uppercase font-semibold'>Email</p>
-                          <p className='font-bold text-gray-800 text-sm break-all'>{selectedApp.applicantEmail}</p>
+                          <p className='font-bold text-gray-800 text-sm break-all'>{selectedApp.applicant_email}</p>
                         </div>
                       </div>
                     </div>
@@ -775,7 +775,7 @@ export default function AdminDashboard() {
                         </div>
                         <div>
                           <p className='text-xs text-gray-500 uppercase font-semibold'>Teléfono</p>
-                          <p className='font-bold text-gray-800'>{selectedApp.applicantPhone}</p>
+                          <p className='font-bold text-gray-800'>{selectedApp.applicant_phone}</p>
                         </div>
                       </div>
                     </div>
@@ -850,7 +850,7 @@ export default function AdminDashboard() {
                 </motion.div>
 
                 {/* Carta de Presentación */}
-                {selectedApp.coverLetter && (
+                {selectedApp.cover_letter && (
                   <motion.div
                     initial={{ x: -20, opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
@@ -863,7 +863,7 @@ export default function AdminDashboard() {
                     </h3>
                     <div className='bg-white/70 rounded-xl p-5'>
                       <p className='text-gray-700 whitespace-pre-wrap leading-relaxed'>
-                        {selectedApp.coverLetter}
+                        {selectedApp.cover_letter}
                       </p>
                     </div>
                   </motion.div>

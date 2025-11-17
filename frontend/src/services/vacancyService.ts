@@ -2,7 +2,7 @@ import axios from 'axios';
 import { recruitmentAPI } from './api';
 import type { Vacancy } from '../types';
 
-const API_URL = 'http://52.0.197.30:3002/api';
+const API_URL = 'https://prismacvesta.xyz/api/v1';
 
 export interface VacancyFull {
   uuid?: string;
@@ -32,7 +32,7 @@ export const vacancyService = {
   // Get only active vacancies
   getActiveVacancies: async (): Promise<Vacancy[]> => {
     try {
-      const response = await axios.get(`${API_URL}/vacancies/active`);
+      const response = await recruitmentAPI.get('/vacancies/active');
       return response.data.data.vacancies || [];
     } catch (error) {
       console.error('Error fetching active vacancies:', error);

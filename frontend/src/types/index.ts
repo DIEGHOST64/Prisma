@@ -18,7 +18,7 @@ export interface AuthResponse {
 }
 
 export interface LoginCredentials {
-  applicant_email: string;
+  email: string;
   password: string;
 }
 

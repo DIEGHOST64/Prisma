@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Application, CreateApplicationData } from '../types';
 
-const API_URL = 'http://52.0.197.30:3002/api';
+const API_URL = 'https://prismacvesta.xyz/api/v1';
 
 const applicationAPI = axios.create({
   baseURL: API_URL,
@@ -18,7 +18,7 @@ applicationAPI.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor para manejar errores de autenticación
+// Interceptor para manejar errores de autenticaciï¿½n
 applicationAPI.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -43,7 +43,7 @@ export const applicationService = {
         phone: data.applicant_phone,
         documentNumber: data.applicant_document,
         coverLetter: data.cover_letter || '',
-      cvPath: '' // Se actualizará después de subir el archivo
+      cvPath: '' // Se actualizarï¿½ despuï¿½s de subir el archivo
     };
 
     const response = await applicationAPI.post<{ success: boolean; data: any }>('/applications', backendData);
@@ -57,7 +57,7 @@ export const applicationService = {
       applicant_email: backendApp.email,
       applicant_phone: backendApp.phone,
       applicantDocument: backendApp.documentNumber,
-      coverLetter: backendApp.coverLetter,
+      cover_letter: backendApp.coverLetter,
       status: backendApp.status,
       notes: backendApp.notes,
       createdAt: backendApp.createdAt,
@@ -72,10 +72,10 @@ export const applicationService = {
       uuid: app.uuid,
       vacancyId: app.vacancyUuid,
       applicantName: app.fullName,
-      applicantEmail: app.email,
-      applicantPhone: app.phone,
+      applicant_email: app.email,
+      applicant_phone: app.phone,
       applicantDocument: app.documentNumber,
-      coverLetter: app.coverLetter,
+      cover_letter: app.coverLetter,
       status: app.status,
       notes: app.notes,
       createdAt: app.createdAt,
@@ -90,10 +90,10 @@ export const applicationService = {
       uuid: app.uuid,
       vacancyId: app.vacancyUuid,
       applicantName: app.fullName,
-      applicantEmail: app.email,
-      applicantPhone: app.phone,
+      applicant_email: app.email,
+      applicant_phone: app.phone,
       applicantDocument: app.documentNumber,
-      coverLetter: app.coverLetter,
+      cover_letter: app.coverLetter,
       status: app.status,
       notes: app.notes,
       createdAt: app.createdAt,
@@ -112,10 +112,10 @@ export const applicationService = {
       uuid: app.uuid,
       vacancyId: app.vacancyUuid,
       applicantName: app.fullName,
-      applicantEmail: app.email,
-      applicantPhone: app.phone,
+      applicant_email: app.email,
+      applicant_phone: app.phone,
       applicantDocument: app.applicantDocument,
-      coverLetter: app.coverLetter,
+      cover_letter: app.coverLetter,
       status: app.status,
       notes: app.notes,
       createdAt: app.createdAt,
