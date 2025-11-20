@@ -67,14 +67,247 @@ graph TB
     style DOC fill:#009688,stroke:#333,stroke-width:2px,color:#fff
 ```
 
-**Descripción:**
-- **Frontend**: Aplicación React que consume las APIs de los microservicios
-- **Auth Service**: Gestiona autenticación, autorización y usuarios
-- **Recruitment Service**: Gestiona vacantes, postulaciones y notificaciones
-- **Document Service**: Gestiona almacenamiento y recuperación de documentos
-- Cada servicio tiene su propia base de datos (Database per Service pattern)
-- Comunicación entre servicios mediante HTTP/REST
-- JWT para autenticación y autorización
+### 📖 Funcionamiento Detallado de la Arquitectura
+
+**PRISMA** es un sistema de reclutamiento construido con una arquitectura de microservicios que sigue los principios de **Clean Architecture** y **Domain-Driven Design (DDD)**. El sistema está diseñado para ser escalable, mantenible y permitir el desarrollo independiente de cada componente.
+
+#### **1. Frontend Layer (Capa de Presentación)**
+El **Frontend** es una aplicación **Single Page Application (SPA)** desarrollada con:
+- **React 19** con **TypeScript** para type safety
+- **Vite** como bundler para desarrollo rápido
+- **Tailwind CSS** para estilos
+- **React Router** para navegación
+- **Axios** para peticiones HTTP
+
+**Flujo de trabajo:**
+1. El usuario accede a la aplicación desde el navegador
+2. React carga la interfaz y muestra las páginas según la ruta
+3. Cuando el usuario realiza una acción (login, postular, crear vacante), el frontend envía peticiones HTTP a los microservicios
+4. Los **tokens JWT** se almacenan en `localStorage` para mantener la sesión
+5. En cada petición protegida, el frontend envía el token JWT en el header `Authorization: Bearer <token>`
+
+#### **2. API Gateway / Load Balancer**
+**Nginx** actúa como **reverse proxy** y punto de entrada único:
+- **Enrutamiento**: Redirige peticiones a los servicios correspondientes según la URL
+- **HTTPS/SSL**: Maneja certificados y encriptación
+- **Load Balancing**: Distribuye carga entre múltiples instancias (si existen)
+- **CORS**: Configura políticas de origen cruzado
+- **Compresión**: Reduce tamaño de respuestas (gzip)
+
+**Ejemplo de enrutamiento:**
+```
+/api/v1/auth/*        → Auth Service (3001)
+/api/v1/vacancies/*   → Recruitment Service (3002)
+/api/v1/documents/*   → Document Service (3003)
+```
+
+#### **3. Microservices Layer (Capa de Servicios)**
+
+##### **3.1 Auth Service (Node.js + TypeScript)**
+**Responsabilidades:**
+- Registro de usuarios (sign up)
+- Autenticación (login/logout)
+- Generación y validación de tokens JWT
+- Gestión de roles (admin, recruiter, user)
+- Actualización de perfiles
+
+**Tecnologías:**
+- **Express**: Framework web minimalista
+- **JWT (jsonwebtoken)**: Para tokens de autenticación
+- **Bcrypt**: Hash seguro de contraseñas con salt
+- **PostgreSQL**: Base de datos relacional
+- **Joi**: Validación de datos de entrada
+
+**Proceso de autenticación:**
+1. Usuario envía credenciales (email + password)
+2. El servicio busca el usuario en la BD por email
+3. Verifica el password usando bcrypt.compare()
+4. Si es correcto, genera:
+   - **Access Token** (vida corta: 15 min) - Para autenticar peticiones
+   - **Refresh Token** (vida larga: 7 días) - Para renovar access token
+5. Guarda el refresh token en BD (tabla `refresh_tokens`)
+6. Retorna ambos tokens al cliente
+
+**Seguridad:**
+- Passwords nunca se almacenan en texto plano
+- Tokens firmados con secret key (HS256)
+- Refresh tokens revocables
+- Rate limiting para prevenir ataques de fuerza bruta
+
+##### **3.2 Recruitment Service (PHP + Slim Framework)**
+**Responsabilidades:**
+- CRUD de vacantes de empleo
+- Recepción y gestión de postulaciones
+- Cambio de estados de postulaciones (pending → reviewing → accepted/rejected)
+- Envío de emails transaccionales
+- Mejora de textos con IA (OpenAI API)
+
+**Tecnologías:**
+- **Slim 4**: Micro-framework PHP para APIs REST
+- **PDO**: Acceso a base de datos
+- **AWS SES**: Servicio de email de Amazon
+- **AWS SQS**: Cola de mensajes para procesamiento asíncrono
+- **PHP-DI**: Contenedor de inyección de dependencias
+
+**Proceso de postulación:**
+1. Candidato completa formulario con sus datos
+2. Servicio valida que la vacante existe y está activa
+3. Crea registro en tabla `applications` con status='pending'
+4. Retorna el UUID de la aplicación
+5. Frontend usa ese UUID para subir el CV al Document Service
+6. Encola mensaje en **SQS** para enviar email de confirmación
+7. Un **worker** (cli/queue-worker.php) procesa la cola en background
+8. Email se envía usando **AWS SES**
+
+**Estados de una postulación:**
+```
+pending → reviewing → interviewed → accepted/rejected
+```
+
+**Notificaciones por email:**
+- Confirmación de recepción (candidato)
+- Nueva postulación (reclutador)
+- Cambio de estado (candidato)
+- Recordatorios (automatizados)
+
+##### **3.3 Document Service (Python + FastAPI)**
+**Responsabilidades:**
+- Subida y almacenamiento de archivos (CV, cartas, certificados)
+- Validación de tipo y tamaño de archivo
+- Generación de URLs firmadas para descarga
+- Listado de documentos por usuario o postulación
+- Eliminación de documentos
+
+**Tecnologías:**
+- **FastAPI**: Framework web moderno y rápido
+- **Uvicorn**: Servidor ASGI de alto rendimiento
+- **AsyncPG**: Driver asíncrono para PostgreSQL
+- **Pydantic**: Validación de datos con type hints
+- **Boto3**: SDK de AWS para S3 (opcional)
+
+**Proceso de subida de documento:**
+1. Cliente envía archivo en formato `multipart/form-data`
+2. Servicio valida:
+   - Tipo MIME permitido (PDF, DOCX, JPG, PNG)
+   - Tamaño máximo (10 MB)
+   - Metadata completa (user_document, application_id, document_type)
+3. Genera nombre único: `{user_doc}/{app_id}/{tipo}_{timestamp}.ext`
+4. Guarda archivo en:
+   - **Local Storage**: `/app/storage/` (desarrollo)
+   - **AWS S3**: bucket configurado (producción)
+5. Guarda metadata en tabla `documents`
+6. Retorna información del documento
+
+**Tipos de documentos:**
+- `cv`: Curriculum Vitae
+- `carta_presentacion`: Cover letter
+- `certificado`: Certificaciones
+- `diploma`: Títulos académicos
+- `referencia`: Referencias laborales
+- `otro`: Otros documentos
+
+#### **4. Database Layer (Capa de Persistencia)**
+
+Cada microservicio tiene su **propia base de datos PostgreSQL 16**, siguiendo el patrón **Database per Service**:
+
+**Ventajas:**
+- ✅ Independencia: Cambios en un servicio no afectan a otros
+- ✅ Escalabilidad: Cada BD puede escalar independientemente
+- ✅ Tecnología específica: Cada servicio puede usar la BD que prefiera
+- ✅ Resiliencia: Fallo en una BD no afecta todo el sistema
+
+**Desventajas:**
+- ❌ No hay transacciones distribuidas
+- ❌ Joins entre servicios requieren agregación en código
+- ❌ Mayor complejidad operacional
+
+**Soluciones implementadas:**
+- **Eventual Consistency**: Los datos se sincronizan eventualmente
+- **UUIDs**: Identificadores únicos globales para relacionar entidades
+- **Event Sourcing**: (futuro) Para mantener historial de cambios
+
+#### **5. Storage Layer**
+**Dos estrategias de almacenamiento:**
+
+**Local Storage (Desarrollo):**
+- Archivos en `/app/storage/` dentro del contenedor
+- Volume de Docker para persistencia
+- Acceso directo por filesystem
+
+**AWS S3 (Producción):**
+- Bucket S3 configurado
+- URLs firmadas con expiración (presigned URLs)
+- Alta disponibilidad y durabilidad (99.999999999%)
+- CDN CloudFront para distribución global
+
+#### **6. External Services (Servicios Externos)**
+
+##### **AWS SES (Simple Email Service)**
+- Envío de emails transaccionales
+- Plantillas HTML personalizadas
+- Tracking de bounces y quejas
+- Reputación de sender gestionada por AWS
+
+##### **AWS SQS (Simple Queue Service)**
+- Cola de mensajes FIFO o estándar
+- Procesamiento asíncrono de tareas
+- Reintento automático en caso de fallo
+- Dead Letter Queue para mensajes fallidos
+
+**Flujo de procesamiento asíncrono:**
+1. Application crea postulación → Encola mensaje en SQS
+2. Worker (CLI) consulta cola cada X segundos
+3. Procesa mensaje (envía email)
+4. Elimina mensaje de la cola
+5. Si falla, SQS reintenta automáticamente
+
+#### **7. Comunicación entre Servicios**
+
+**REST API con JSON:**
+- Protocolo HTTP/HTTPS
+- Formato JSON para request/response
+- Status codes estándar (200, 201, 400, 401, 403, 404, 500)
+- Versionado en URL: `/api/v1/...`
+
+**Autenticación JWT entre servicios:**
+1. Frontend obtiene JWT del Auth Service
+2. Incluye JWT en todas las peticiones a otros servicios
+3. Cada servicio verifica el JWT usando el **mismo secret compartido**
+4. Extrae información del payload (uuid, role, email)
+5. Valida permisos según el rol
+
+**Ejemplo de JWT payload:**
+```json
+{
+  "uuid": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+  "email": "user@example.com",
+  "role": "admin",
+  "iat": 1700000000,
+  "exp": 1700000900
+}
+```
+
+#### **8. Principios de Diseño Aplicados**
+
+**Clean Architecture:**
+- Separación en 4 capas: Domain, Application, Infrastructure, Presentation
+- Independencia de frameworks
+- Regla de dependencias: hacia adentro
+
+**SOLID:**
+- **S**ingle Responsibility: Cada clase/módulo tiene una sola razón para cambiar
+- **O**pen/Closed: Abierto a extensión, cerrado a modificación
+- **L**iskov Substitution: Los tipos derivados deben ser sustituibles
+- **I**nterface Segregation: Interfaces específicas mejor que generales
+- **D**ependency Inversion: Depender de abstracciones, no de concreciones
+
+**Domain-Driven Design:**
+- Entities: User, Vacancy, Application, Document
+- Value Objects: Email, UUID, Token
+- Repositories: Abstracción del acceso a datos
+- Use Cases: Lógica de negocio aislada
+
+---
 
 ---
 
@@ -171,6 +404,130 @@ erDiagram
         uuid uploaded_by
     }
 ```
+
+### 📖 Explicación Detallada del Modelo de Datos
+
+#### **Base de Datos 1: Auth Database (auth_db)**
+
+Esta base de datos centraliza toda la información de **autenticación y autorización** del sistema.
+
+**Tabla `users`:**
+- **Propósito**: Almacenar información de todos los usuarios del sistema
+- **id**: Clave primaria auto-incremental (para relaciones internas)
+- **uuid**: Identificador público único (UUID v4) usado en APIs para mayor seguridad
+- **email**: Correo electrónico único, usado para login
+- **password_hash**: Contraseña hasheada con bcrypt (nunca se guarda texto plano)
+- **name**: Nombre completo del usuario
+- **role**: Define permisos del usuario:
+  - `admin`: Acceso total, puede crear usuarios, eliminar postulaciones
+  - `recruiter`: Puede crear vacantes, revisar postulaciones
+  - `user`: Usuario básico (futuro uso)
+- **status**: Estado de la cuenta:
+  - `active`: Puede acceder al sistema
+  - `inactive`: Cuenta desactivada temporalmente
+  - `suspended`: Suspendido por violación de políticas
+- **email_verified**: Flag booleano para verificación de email (futuro)
+- **created_at**: Fecha de registro
+- **updated_at**: Última modificación (actualizado automáticamente por trigger)
+- **last_login_at**: Última vez que inició sesión
+- **deleted_at**: Soft delete - si tiene valor, el usuario está eliminado lógicamente
+
+**Tabla `refresh_tokens`:**
+- **Propósito**: Almacenar tokens de refresco para renovar access tokens
+- **user_id**: Relación con tabla users (ON DELETE CASCADE)
+- **token**: JWT de larga duración (7 días)
+- **expires_at**: Fecha de expiración del token
+- **revoked**: Si es true, el token ya no es válido (logout, cambio de password)
+
+**Índices:**
+- `idx_users_email`: Búsqueda rápida por email durante login
+- `idx_users_uuid`: Búsqueda por UUID en peticiones API
+- `idx_refresh_tokens_token`: Validación rápida de refresh tokens
+
+**Triggers:**
+- `update_users_updated_at`: Actualiza automáticamente el campo `updated_at` en cada UPDATE
+
+#### **Base de Datos 2: Recruitment Database (recruitment_db)**
+
+Gestiona el núcleo del negocio: **vacantes y postulaciones**.
+
+**Tabla `vacancies`:**
+- **Propósito**: Almacenar ofertas de empleo publicadas
+- **uuid**: Identificador público para URLs amigables
+- **title**: Título del puesto (ej: "Desarrollador Full Stack Senior")
+- **description**: Descripción detallada del puesto y empresa
+- **requirements**: Requisitos técnicos y experiencia necesaria
+- **location**: Ubicación del trabajo (puede incluir "Remoto")
+- **salary_range**: Rango salarial (ej: "$3.000.000 - $5.000.000 COP")
+- **employment_type**: Tipo de empleo:
+  - `full-time`: Tiempo completo
+  - `part-time`: Medio tiempo
+  - `contract`: Por contrato
+  - `internship`: Pasantía
+- **status**: Estado de la vacante:
+  - `draft`: Borrador, no visible públicamente
+  - `published`: Publicada y aceptando postulaciones
+  - `closed`: Cerrada manualmente
+  - `filled`: Puesto cubierto
+- **published_at**: Fecha de publicación (NULL si está en draft)
+- **expires_at**: Fecha límite para postular
+
+**Tabla `applications`:**
+- **Propósito**: Almacenar postulaciones de candidatos
+- **vacancy_id**: ID interno de la vacante (FK con CASCADE)
+- **vacancy_uuid**: UUID de la vacante (para consultas entre servicios)
+- **document_number**: Número de documento del candidato (DNI, cédula, pasaporte)
+- **full_name**: Nombre completo del candidato
+- **email**: Email de contacto
+- **phone**: Teléfono de contacto
+- **cv_path**: Ruta del CV en storage (referencia al Document Service)
+- **cover_letter**: Carta de presentación (opcional)
+- **status**: Estado del proceso:
+  - `pending`: Recién recibida
+  - `reviewing`: En revisión por reclutador
+  - `interviewed`: Candidato entrevistado
+  - `accepted`: Aceptado para el puesto
+  - `rejected`: Rechazado
+- **review_notes**: Notas del reclutador sobre el candidato
+
+**Restricciones importantes:**
+- `unique_application_per_vacancy`: Un candidato no puede postular dos veces a la misma vacante
+- `email_format`: Valida formato de email con regex
+- `expires_after_now`: La fecha de expiración debe ser futura
+
+**Vistas (Views):**
+- `active_vacancies`: Solo vacantes publicadas y no expiradas
+- `vacancy_statistics`: Contadores de postulaciones por estado para cada vacante
+
+#### **Base de Datos 3: Document Database (document_db)**
+
+Gestiona **metadata de archivos** subidos por usuarios.
+
+**Tabla `documents`:**
+- **id**: UUID único del documento
+- **user_document**: Número de documento del usuario que subió
+- **application_id**: UUID de la postulación asociada
+- **filename**: Nombre procesado del archivo
+- **original_filename**: Nombre original del archivo
+- **file_path**: Ruta en storage (local o S3)
+  - Formato: `{user_doc}/{app_id}/{tipo}_{timestamp}.ext`
+  - Ejemplo: `12345678/uuid-app/cv_20250120_143022.pdf`
+- **file_size**: Tamaño en bytes (máx 10 MB = 10,485,760 bytes)
+- **mime_type**: Tipo MIME del archivo:
+  - `application/pdf`
+  - `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (DOCX)
+  - `image/jpeg`, `image/png`
+- **document_type**: Categoría del documento
+- **uploaded_at**: Timestamp de subida
+- **uploaded_by**: UUID del usuario que subió (NULL si es público)
+
+**Relaciones lógicas (no FK físicas por microservicios):**
+- `user_document` se relaciona conceptualmente con `users.email` o identificador
+- `application_id` se relaciona con `applications.uuid`
+
+**Índices:**
+- `idx_documents_application_id`: Listar todos los docs de una postulación
+- `idx_documents_user_document`: Ver histórico de documentos de un usuario
 
 **Tipos ENUM:**
 - **user_role**: 'admin', 'recruiter', 'user'
@@ -275,6 +632,239 @@ graph TB
     style REC fill:#ffb74d,stroke:#333,stroke-width:2px
     style ADMIN fill:#e57373,stroke:#333,stroke-width:2px
 ```
+
+### 📖 Explicación de Casos de Uso por Actor
+
+El sistema PRISMA tiene **3 tipos de actores principales**, cada uno con permisos y funcionalidades específicas:
+
+#### **👤 Candidato (Público) - Sin autenticación requerida**
+
+Los candidatos pueden interactuar con el sistema **sin necesidad de crear una cuenta**. Solo necesitan proporcionar sus datos personales al postular.
+
+**Casos de Uso:**
+
+1. **UC9: Listar Vacantes Activas**
+   - **Descripción**: Ver todas las ofertas de empleo disponibles
+   - **Flujo**: 
+     1. Accede a la página principal
+     2. Sistema consulta vacantes con status='published' y no expiradas
+     3. Muestra tarjetas con título, ubicación, tipo de empleo, salario
+   - **Endpoint**: `GET /api/v1/vacancies/active`
+
+2. **UC10: Ver Detalle de Vacante**
+   - **Descripción**: Ver información completa de una oferta
+   - **Flujo**:
+     1. Click en una vacante
+     2. Sistema muestra descripción completa, requisitos, beneficios
+   - **Endpoint**: `GET /api/v1/vacancies/{uuid}`
+
+3. **UC12: Aplicar a Vacante**
+   - **Descripción**: Enviar postulación con datos personales
+   - **Flujo**:
+     1. Completa formulario (nombre, email, teléfono, documento, carta)
+     2. Adjunta CV
+     3. Sistema valida datos y crea application
+     4. Envía email de confirmación
+   - **Endpoint**: `POST /api/v1/applications`
+   - **Validaciones**:
+     - Email válido
+     - Documento único por vacante
+     - CV obligatorio
+     - Vacante activa
+
+4. **UC13: Subir CV**
+   - **Descripción**: Adjuntar archivo de CV
+   - **Flujo**:
+     1. Selecciona archivo desde su dispositivo
+     2. Sistema valida tipo (PDF/DOCX/IMG) y tamaño (max 10MB)
+     3. Sube a Document Service
+   - **Endpoint**: `POST /api/v1/documents/upload/public`
+
+5. **UC14: Consultar Estado de Postulación**
+   - **Descripción**: Ver el progreso de su aplicación
+   - **Flujo**:
+     1. Ingresa su número de documento
+     2. Sistema busca sus postulaciones
+     3. Muestra estado actual (pending, reviewing, interviewed, accepted, rejected)
+   - **Endpoint**: `GET /api/v1/applications/status/{document}`
+
+#### **👤 Reclutador - Requiere autenticación (role: recruiter)**
+
+Los reclutadores gestionan el proceso de reclutamiento: crean vacantes y evalúan candidatos.
+
+**Casos de Uso:**
+
+1. **UC2: Iniciar Sesión**
+   - **Descripción**: Autenticarse en el sistema
+   - **Flujo**:
+     1. Ingresa email y password
+     2. Sistema valida credenciales
+     3. Retorna access token (15 min) y refresh token (7 días)
+   - **Endpoint**: `POST /api/v1/auth/login`
+
+2. **UC5: Crear Vacante**
+   - **Descripción**: Publicar nueva oferta de empleo
+   - **Flujo**:
+     1. Completa formulario con título, descripción, requisitos, etc.
+     2. Puede guardar como 'draft' o publicar directamente
+     3. Sistema genera UUID único
+   - **Endpoint**: `POST /api/v1/vacancies`
+   - **Campos requeridos**:
+     - Título (min 5 caracteres)
+     - Descripción (min 20 caracteres)
+     - Requisitos
+     - Ubicación
+     - Tipo de empleo
+     - Fecha de expiración
+
+3. **UC6: Editar Vacante**
+   - **Descripción**: Modificar datos de una oferta existente
+   - **Flujo**:
+     1. Selecciona vacante de su lista
+     2. Modifica campos necesarios
+     3. Sistema actualiza y registra updated_at
+   - **Endpoint**: `PUT /api/v1/vacancies/{uuid}`
+
+4. **UC8: Publicar Vacante**
+   - **Descripción**: Cambiar status de 'draft' a 'published'
+   - **Flujo**:
+     1. Revisa borrador
+     2. Confirma publicación
+     3. Sistema establece published_at y cambia status
+   - **Endpoint**: `PUT /api/v1/vacancies/{uuid}` (con isActive=true)
+
+5. **UC11: Mejorar Texto con IA**
+   - **Descripción**: Usar OpenAI para mejorar descripciones
+   - **Flujo**:
+     1. Escribe texto base
+     2. Click en "Mejorar con IA"
+     3. Sistema envía a API de OpenAI
+     4. Retorna versión mejorada profesionalmente
+   - **Endpoint**: `POST /api/v1/ai/improve-text`
+
+6. **UC15: Listar Postulaciones**
+   - **Descripción**: Ver todos los candidatos que han aplicado
+   - **Flujo**:
+     1. Accede al dashboard de admin
+     2. Sistema muestra tabla con todas las applications
+     3. Puede filtrar por vacante, estado, fecha
+   - **Endpoint**: `GET /api/v1/applications`
+
+7. **UC16: Actualizar Estado de Postulación**
+   - **Descripción**: Cambiar fase del proceso de un candidato
+   - **Flujo**:
+     1. Selecciona una postulación
+     2. Cambia status (ej: pending → reviewing)
+     3. Opcionalmente añade notas
+     4. Sistema actualiza y envía email al candidato
+   - **Endpoint**: `PATCH /api/v1/applications/{uuid}/status`
+   - **Estados posibles**:
+     - pending → reviewing
+     - reviewing → interviewed
+     - interviewed → accepted/rejected
+
+8. **UC17: Descargar CV**
+   - **Descripción**: Obtener archivo CV del candidato
+   - **Flujo**:
+     1. Click en botón "Descargar CV"
+     2. Sistema obtiene URL del Document Service
+     3. Descarga archivo
+   - **Endpoint**: `GET /api/v1/documents/application/{application_id}`
+
+9. **UC25: Ver Perfil**
+   - **Descripción**: Ver información de su cuenta
+   - **Endpoint**: `GET /api/v1/auth/me`
+
+#### **👤 Administrador - Máximo nivel de permisos (role: admin)**
+
+Los administradores tienen **control total** del sistema.
+
+**Casos de Uso heredados de Reclutador:**
+- Todos los casos de uso del reclutador
+
+**Casos de Uso exclusivos:**
+
+1. **UC1: Registrar Usuario**
+   - **Descripción**: Crear nuevos usuarios del sistema (admin/recruiter)
+   - **Flujo**:
+     1. Ingresa datos: email, password, name, role
+     2. Sistema hashea password con bcrypt
+     3. Crea usuario en BD
+   - **Endpoint**: `POST /api/v1/auth/register`
+   - **Seguridad**: Solo admin puede crear otros admins
+
+2. **UC3: Cerrar Sesión**
+   - **Descripción**: Invalidar tokens de sesión
+   - **Flujo**:
+     1. Usuario cierra sesión
+     2. Sistema revoca refresh token (revoked=true)
+     3. Frontend elimina tokens de localStorage
+   - **Endpoint**: `POST /api/v1/auth/logout`
+
+3. **UC7: Eliminar Vacante**
+   - **Descripción**: Borrar una oferta de empleo
+   - **Flujo**:
+     1. Confirma eliminación
+     2. Sistema hace soft delete (deleted_at=NOW)
+     3. Aplicaciones asociadas también se marcan como eliminadas (CASCADE)
+   - **Endpoint**: `DELETE /api/v1/vacancies/{uuid}`
+
+4. **UC18: Eliminar Postulación**
+   - **Descripción**: Eliminar una o múltiples postulaciones
+   - **Flujo individual**:
+     1. Selecciona postulación
+     2. Confirma eliminación
+     3. Soft delete
+   - **Flujo masivo**:
+     1. Selecciona criterio (ej: todos los rechazados)
+     2. Confirma eliminación masiva
+     3. Sistema elimina en batch
+   - **Endpoints**:
+     - `DELETE /api/v1/applications/{uuid}`
+     - `POST /api/v1/applications/bulk-delete`
+
+5. **UC23: Listar Usuarios**
+   - **Descripción**: Ver todos los usuarios del sistema
+   - **Flujo**:
+     1. Accede a panel de usuarios
+     2. Sistema muestra tabla con uuid, email, name, role, status
+   - **Endpoint**: `GET /api/v1/users`
+
+6. **UC24: Cambiar Rol de Usuario**
+   - **Descripción**: Promover/degradar usuarios (admin ↔ recruiter)
+   - **Flujo**:
+     1. Selecciona usuario
+     2. Cambia rol en dropdown
+     3. Confirma cambio
+     4. Sistema actualiza role
+   - **Endpoint**: `PATCH /api/v1/users/{uuid}/role`
+
+7. **UC26: Actualizar Perfil**
+   - **Descripción**: Modificar datos de cualquier usuario
+   - **Endpoint**: `PATCH /api/v1/users/{uuid}`
+
+8. **UC22: Eliminar Documento**
+   - **Descripción**: Borrar archivos del storage
+   - **Flujo**:
+     1. Selecciona documento
+     2. Sistema elimina archivo físico (S3 o local)
+     3. Elimina registro de BD
+   - **Endpoint**: `DELETE /api/v1/documents/{id}`
+
+### 🔐 Matriz de Permisos
+
+| Caso de Uso | Candidato | Reclutador | Admin |
+|-------------|-----------|------------|-------|
+| Ver vacantes | ✅ | ✅ | ✅ |
+| Postular | ✅ | ❌ | ❌ |
+| Crear vacante | ❌ | ✅ | ✅ |
+| Editar vacante | ❌ | ✅ | ✅ |
+| Eliminar vacante | ❌ | ❌ | ✅ |
+| Ver postulaciones | ❌ | ✅ | ✅ |
+| Cambiar estado | ❌ | ✅ | ✅ |
+| Eliminar postulación | ❌ | ❌ | ✅ |
+| Crear usuarios | ❌ | ❌ | ✅ |
+| Cambiar roles | ❌ | ❌ | ✅ |
 
 ---
 
@@ -411,6 +1001,416 @@ sequenceDiagram
         Note over FE,AUTH: Renovar token
     end
 ```
+
+### 📖 Explicación Detallada de los Flujos de Secuencia
+
+#### **4.1 Flujo de Autenticación (Login) - Paso a Paso**
+
+Este diagrama muestra el proceso completo de inicio de sesión con JWT.
+
+**Paso 1-2: Inicio de sesión**
+- El usuario ingresa su email y contraseña en el formulario
+- El frontend valida formato básico (email válido, password no vacío)
+- Envía petición POST a `/api/v1/auth/login` con:
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "Password123!"
+  }
+  ```
+
+**Paso 3-4: Búsqueda del usuario**
+- Auth Service busca en la base de datos por email
+- Consulta SQL: `SELECT * FROM users WHERE email = ? AND deleted_at IS NULL`
+- Si no existe, retorna error 401 inmediatamente
+
+**Paso 5: Verificación de contraseña**
+- Usa bcrypt.compare() para verificar:
+  ```javascript
+  const isValid = await bcrypt.compare(
+    passwordIngresada, 
+    user.password_hash
+  );
+  ```
+- **¿Por qué bcrypt?**
+  - Hash de una sola vía (no se puede revertir)
+  - Incluye salt automático (previene rainbow tables)
+  - Función costosa computacionalmente (previene fuerza bruta)
+
+**Paso 6-8: Generación de tokens (si credenciales válidas)**
+- **Access Token**:
+  ```javascript
+  jwt.sign(
+    { uuid: user.uuid, email: user.email, role: user.role },
+    SECRET_KEY,
+    { expiresIn: '15m' } // Vida corta
+  )
+  ```
+- **Refresh Token**:
+  ```javascript
+  jwt.sign(
+    { uuid: user.uuid, type: 'refresh' },
+    REFRESH_SECRET_KEY,
+    { expiresIn: '7d' } // Vida larga
+  )
+  ```
+- Guarda refresh token en tabla `refresh_tokens` con `expires_at` y `revoked=false`
+
+**Paso 9-11: Respuesta exitosa**
+- Retorna al frontend:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+      "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+      "user": {
+        "uuid": "...",
+        "email": "...",
+        "name": "...",
+        "role": "admin"
+      }
+    }
+  }
+  ```
+- Frontend guarda tokens en localStorage:
+  ```javascript
+  localStorage.setItem('accessToken', data.accessToken);
+  localStorage.setItem('refreshToken', data.refreshToken);
+  ```
+- Redirige según rol: admin → dashboard, recruiter → vacantes
+
+**Paso 12-13: Credenciales inválidas**
+- Si password no coincide o usuario no existe
+- Retorna 401 con mensaje genérico (por seguridad):
+  ```json
+  {
+    "success": false,
+    "error": "Invalid credentials"
+  }
+  ```
+- Frontend muestra mensaje de error
+
+#### **4.2 Flujo de Postulación a Vacante - Proceso Completo**
+
+Este es el flujo más complejo, involucra 3 microservicios.
+
+**Paso 1-2: Envío de formulario**
+- Candidato completa todos los campos:
+  - Datos personales (nombre, email, teléfono, documento)
+  - Carta de presentación (opcional)
+  - Archivo CV (obligatorio)
+- Frontend valida:
+  - Formato de email
+  - Archivo seleccionado
+  - Tamaño < 10MB
+
+**Paso 3-4: Validación de vacante**
+- Recruitment Service verifica:
+  ```sql
+  SELECT * FROM vacancies 
+  WHERE uuid = ? 
+    AND status = 'published' 
+    AND expires_at > NOW()
+    AND deleted_at IS NULL
+  ```
+- Si no cumple condiciones → Error 400 "Vacancy not available"
+
+**Paso 5-7: Creación de aplicación**
+- Inserta en tabla `applications`:
+  ```sql
+  INSERT INTO applications (
+    uuid, vacancy_id, document_number, full_name, 
+    email, phone, cv_path, cover_letter, status
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+  ```
+- Genera UUID único para la aplicación
+- `cv_path` se guarda como placeholder inicialmente
+- Retorna UUID al frontend
+
+**Paso 8-13: Subida de documento**
+- Frontend usa el UUID de la aplicación para subir CV
+- Document Service recibe multipart/form-data:
+  ```
+  POST /api/v1/documents/upload/public
+  Content-Type: multipart/form-data
+  
+  file: [binary data]
+  user_document: "12345678"
+  application_id: "uuid-de-aplicacion"
+  document_type: "cv"
+  ```
+
+**Paso 9: Validación del archivo**
+- Valida tipo MIME:
+  ```python
+  ALLOWED_TYPES = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument...',
+    'image/jpeg',
+    'image/png'
+  ]
+  ```
+- Valida tamaño: `file_size <= 10 * 1024 * 1024` (10 MB)
+
+**Paso 10-11: Almacenamiento físico**
+- Genera nombre único:
+  ```python
+  filename = f"{user_doc}/{app_id}/cv_{timestamp}.{ext}"
+  # Ejemplo: 12345678/uuid-app/cv_20250120_143022.pdf
+  ```
+- **Local Storage**:
+  ```python
+  with open(f'/app/storage/{filename}', 'wb') as f:
+    f.write(file_content)
+  ```
+- **S3** (producción):
+  ```python
+  s3_client.put_object(
+    Bucket='prisma-documents',
+    Key=filename,
+    Body=file_content,
+    ContentType=mime_type
+  )
+  ```
+
+**Paso 12-13: Guardar metadata**
+- Inserta en tabla `documents`:
+  ```sql
+  INSERT INTO documents (
+    id, user_document, application_id, filename,
+    original_filename, file_path, file_size, mime_type, document_type
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ```
+- Retorna información del documento al frontend
+
+**Paso 14-16: Encolado de email**
+- Recruitment Service encola mensaje en SQS:
+  ```php
+  $message = [
+    'type' => 'application_received',
+    'application_id' => $uuid,
+    'candidate_email' => $email,
+    'candidate_name' => $name,
+    'vacancy_title' => $vacancyTitle
+  ];
+  
+  $sqs->sendMessage([
+    'QueueUrl' => $queueUrl,
+    'MessageBody' => json_encode($message)
+  ]);
+  ```
+
+**Paso 17: Respuesta al usuario**
+- Frontend muestra modal de éxito
+- Mensaje: "¡Postulación enviada! Revisa tu email para confirmación"
+
+**Paso 18-21: Procesamiento asíncrono (Background Worker)**
+- CLI worker corre cada 30 segundos:
+  ```php
+  php cli/queue-worker.php
+  ```
+- Consulta cola SQS:
+  ```php
+  $result = $sqs->receiveMessage([
+    'QueueUrl' => $queueUrl,
+    'MaxNumberOfMessages' => 10,
+    'WaitTimeSeconds' => 20
+  ]);
+  ```
+- Procesa cada mensaje:
+  1. Genera HTML del email usando plantilla
+  2. Envía vía AWS SES
+  3. Elimina mensaje de la cola (si éxito)
+  4. Si falla, SQS reintenta automáticamente
+
+**Plantilla de email:**
+```html
+Hola {candidate_name},
+
+Tu postulación para el puesto de {vacancy_title} ha sido recibida exitosamente.
+
+Estado actual: Pendiente de revisión
+Número de postulación: {application_uuid}
+
+Te notificaremos cualquier actualización a tu email.
+
+Saludos,
+Equipo PRISMA
+```
+
+#### **4.3 Flujo de Actualización de Estado - Notificación al Candidato**
+
+**Paso 1-2: Acción del reclutador**
+- Reclutador revisa candidato en dashboard
+- Cambia estado de "pending" a "accepted" (por ejemplo)
+- Puede agregar notas internas
+
+**Paso 3: Petición autenticada**
+- Frontend envía con JWT:
+  ```
+  PATCH /api/v1/applications/{uuid}/status
+  Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
+  Content-Type: application/json
+  
+  {
+    "status": "accepted",
+    "notes": "Excelente perfil, pasar a entrevista técnica"
+  }
+  ```
+
+**Paso 4-5: Validación de seguridad**
+- Middleware extrae token del header
+- Verifica firma JWT:
+  ```php
+  $payload = JWT::decode($token, new Key($secret, 'HS256'));
+  ```
+- Verifica rol en payload:
+  ```php
+  if (!in_array($payload->role, ['admin', 'recruiter'])) {
+    throw new UnauthorizedException();
+  }
+  ```
+
+**Paso 6-7: Actualización en BD**
+- UPDATE en tabla applications:
+  ```sql
+  UPDATE applications 
+  SET status = ?, 
+      review_notes = ?,
+      updated_at = NOW()
+  WHERE uuid = ?
+  ```
+- Trigger actualiza automáticamente `updated_at`
+
+**Paso 8-9: Encolado de notificación**
+- Mensaje SQS con tipo diferente:
+  ```php
+  $message = [
+    'type' => 'status_update',
+    'application_id' => $uuid,
+    'candidate_email' => $email,
+    'new_status' => 'accepted',
+    'vacancy_title' => $vacancyTitle
+  ];
+  ```
+
+**Paso 10-11: Respuesta al reclutador**
+- Retorna aplicación actualizada
+- Frontend actualiza UI sin recargar página (optimistic update)
+
+**Paso 12-14: Envío de email (Background)**
+- Worker procesa cola
+- Genera email personalizado según estado:
+
+**Email de aceptación:**
+```
+¡Felicidades {name}!
+
+Tu postulación para {vacancy} ha sido ACEPTADA.
+
+Próximos pasos:
+- Te contactaremos para coordinar entrevista
+- Prepara tu portafolio
+- Revisa la descripción del puesto
+
+Estamos emocionados de conocerte!
+```
+
+**Email de rechazo:**
+```
+Hola {name},
+
+Agradecemos tu interés en {vacancy}.
+
+Lamentamos informarte que en esta ocasión no continuaremos con tu proceso.
+
+Te invitamos a postular a futuras vacantes que se ajusten a tu perfil.
+
+Mucho éxito!
+```
+
+#### **4.4 Flujo de Validación JWT - Seguridad entre Servicios**
+
+**Paso 1-2: Petición con token**
+- Frontend incluye JWT en todas las peticiones protegidas
+- Header estándar:
+  ```
+  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  ```
+
+**Paso 3: Extracción del token**
+- Middleware intercepta la petición
+- Regex para extraer token:
+  ```javascript
+  const authHeader = req.headers.authorization;
+  const token = authHeader.replace(/^Bearer\s+/, '');
+  ```
+
+**Paso 4: Verificación de firma**
+- Cada servicio tiene el **mismo secret compartido** (en .env)
+- Verifica que el token no ha sido modificado:
+  ```javascript
+  try {
+    const payload = jwt.verify(token, SECRET_KEY);
+    // Token válido
+  } catch (error) {
+    if (error instanceof TokenExpiredError) {
+      // Token expirado
+    } else {
+      // Token inválido
+    }
+  }
+  ```
+
+**Paso 5-6: Extracción de datos**
+- Payload decodificado contiene:
+  ```json
+  {
+    "uuid": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "email": "admin@prisma.com",
+    "role": "admin",
+    "iat": 1705750000,  // Issued At
+    "exp": 1705750900   // Expiration (15 min después)
+  }
+  ```
+
+**Paso 7-8: Verificación de permisos**
+- Middleware de rol verifica:
+  ```php
+  $allowedRoles = ['admin', 'recruiter'];
+  if (!in_array($payload->role, $allowedRoles)) {
+    return 403 Forbidden;
+  }
+  ```
+
+**Paso 9-10: Ejecución del caso de uso (si autorizado)**
+- Request llega al controlador con datos del usuario:
+  ```php
+  $user = $request->getAttribute('user');
+  // $user->uuid, $user->role disponibles
+  ```
+
+**Paso 11-12: Token expirado - Renovación**
+- Si access token expiró (después de 15 min)
+- Frontend usa refresh token:
+  ```javascript
+  POST /api/v1/auth/refresh
+  {
+    "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
+  }
+  ```
+- Auth Service verifica refresh token en BD
+- Si válido, genera nuevo access token
+- Reintenta la petición original
+
+**Ventajas de este sistema:**
+- ✅ No requiere validar con Auth Service en cada petición
+- ✅ Stateless: no se guarda sesión en memoria
+- ✅ Escalable: múltiples instancias sin sincronización
+- ✅ Secret compartido permite validación local
+- ✅ Tokens de corta duración minizan riesgo si son robados
 
 ---
 
